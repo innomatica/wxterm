@@ -1,0 +1,22 @@
+# general files and folders
+Debug/
+Release/
+*.bak
+*.obj
+*.log
+tags
+
+# psoc specific files and folders
+codegentemp/
+CortexM3/
+Export/
+Generated_Source/
+*.sungjune
+*.brian
+
+# doxygen output
+Doc/html
+
+# python specific files and folders
+__pycache__/
+*.pyc
