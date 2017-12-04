@@ -22,7 +22,7 @@ from wxterm import *
 class MyFrame(wx.Frame):
 
     def __init__(self, parent, title):
-        wx.Frame.__init__(self, parent, title=title)
+        wx.Frame.__init__(self, parent, title=title, size=(900,600))
 
         # populate two terminal panels
         self.pnlTerm1 = TermPanel(self, serial.Serial())

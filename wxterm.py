@@ -508,7 +508,7 @@ if __name__=="__main__":
             wx.Frame.__init__(self, parent, title=title)
 
             # serial terminal panel
-            self.pnlTerm = TermPanel(self, serial.Serial(), size=(800,400))
+            self.pnlTerm = TermPanel(self, serial.Serial(), size=(900,400))
 
             # sizer
             self.sizer = wx.BoxSizer(wx.VERTICAL)
