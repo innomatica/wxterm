@@ -8,17 +8,12 @@
 #   \warning    Packet decoding feature is not tested.
 #
 
-import binascii
 import os
 import pickle
 import serial
-import time
 import _thread
 import wx
 import wx.lib.newevent
-
-# serial port object
-ser = serial.Serial()
 
 # new event class for the COM thread
 (UpdateComData, EVT_UPDATE_COMDATA) = wx.lib.newevent.NewEvent()
@@ -115,11 +110,14 @@ class ComThread:
 #
 class TermPanel(wx.Panel):
 
-    def __init__(self, *args, hideControls = False, **kwgs):
-        wx.Panel.__init__(self, *args, **kwgs)
+    def __init__(self, parent, ser, **kwgs):
+        wx.Panel.__init__(self, parent, **kwgs)
+
+        # serial port
+        self.ser = ser
 
         # terminal
-        self.txtTerm = wx.TextCtrl(self, wx.ID_ANY, "", size=(500,350),
+        self.txtTerm = wx.TextCtrl(self, wx.ID_ANY, "", size=(700,250),
                 style = wx.TE_MULTILINE|wx.TE_READONLY);
         self.txtTerm.SetForegroundColour('yellow')
         self.txtTerm.SetBackgroundColour('black')
@@ -176,11 +174,8 @@ class TermPanel(wx.Panel):
         self.sttSave = wx.StaticText(self.pnlControl, -1, "Save Data")
         self.btnSave = wx.Button(self.pnlControl, -1, "Save")
 
-        if hideControls:
-            self.pnlControl.Show(False)
-
         # COM thread object
-        self.thread = ComThread(self, ser)
+        self.thread = ComThread(self, self.ser)
 
         # sizer
         sizer_g = wx.FlexGridSizer(8,2,4,4)
@@ -236,6 +231,9 @@ class TermPanel(wx.Panel):
         # terminal type
         self.termType = self.cboTMode.GetStringSelection()
 
+        # rx only setting
+        self.rxOnly = False
+
         # newline character
         if 'CR' in self.cboNLine.GetStringSelection():
             self.newLine = 0x0d
@@ -268,31 +266,31 @@ class TermPanel(wx.Panel):
     ## Open COM port
     def OpenPort(self, port, speed):
 
-        if ser.is_open:
+        if self.ser.is_open:
             # terminate thread first
             if self.thread.IsRunning():
                 self.thread.Stop()
             # join the thread
             while self.thread.IsRunning():
-                time.sleep(0.1)
+                wx.MilliSleep(100)
             # then close the port
-            ser.close()
+            self.ser.close()
 
         # set port number and speed
-        ser.port = port
-        ser.baudrate = int(speed)
+        self.ser.port = port
+        self.ser.baudrate = int(speed)
         # setting read timeout is crucial for the safe termination of thread
-        ser.timeout = 1
+        self.ser.timeout = 1
 
         # open the serial port
         try:
-            ser.open()
+            self.ser.open()
         except:
             return False
         else:
             pass
 
-        if ser.is_open:
+        if self.ser.is_open:
             # start thread
             self.thread.Start()
             return True
@@ -307,8 +305,8 @@ class TermPanel(wx.Panel):
 
     ## Send data via COM port
     def SendData(self, data):
-        if ser.is_open:
-            ser.write(data)
+        if self.ser.is_open:
+            self.ser.write(data)
 
     ## Set new line character
     def SetNewLine(self, nl):
@@ -318,6 +316,9 @@ class TermPanel(wx.Panel):
     ## Enable/disable local echo
     def SetLocalEcho(self, flag):
         self.localEcho = flag
+
+    def SetRxOnly(self, flag = True):
+        self.rxOnly = flag
 
     ## Set terminal type
     def SetTermType(self, termtype):
@@ -381,8 +382,11 @@ class TermPanel(wx.Panel):
 
     ## Terminal input handler
     def OnTermChar(self, evt):
-        if ser.is_open:
-            ser.write([evt.GetKeyCode()])
+        if self.rxOnly:
+            return
+
+        if self.ser.is_open:
+            self.ser.write([evt.GetKeyCode()])
 
         if self.localEcho:
             if self.termType == 'ASCII':
@@ -485,11 +489,11 @@ class TermPanel(wx.Panel):
 
         # join the thread
         while self.thread.IsRunning():
-            time.sleep(0.1)
+            wx.MilliSleep(100)
 
         # close the port
-        if ser.is_open:
-            ser.close()
+        if self.ser.is_open:
+            self.ser.close()
 
         # destroy self
         self.Destroy()
@@ -503,11 +507,8 @@ if __name__=="__main__":
         def __init__(self, parent, title):
             wx.Frame.__init__(self, parent, title=title)
 
-            # panel
-            self.pnlTerm = TermPanel(self, size=(1000,600))
-
-            # event binding
-            self.Bind(wx.EVT_CLOSE, self.OnClose)
+            # serial terminal panel
+            self.pnlTerm = TermPanel(self, serial.Serial(), size=(800,400))
 
             # sizer
             self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -517,12 +518,8 @@ if __name__=="__main__":
             self.SetAutoLayout(1)
             self.sizer.Fit(self)
             self.Show()
-
-        def OnClose(self, evt):
-            # destroy self
-            self.Destroy()
-
+    
+    # app loop
     app = wx.App()
     frame = MyFrame(None, "serial terminal demo")
-
     app.MainLoop()
