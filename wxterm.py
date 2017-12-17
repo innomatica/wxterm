@@ -382,11 +382,16 @@ class TermPanel(wx.Panel):
 
     ## Terminal input handler
     def OnTermChar(self, evt):
+        # no tx data if rxOnly
         if self.rxOnly:
             return
 
         if self.ser.is_open:
-            self.ser.write([evt.GetKeyCode()])
+            # key code can be multiple bytes
+            try:
+                self.ser.write([evt.GetKeyCode()])
+            except:
+                pass
 
         if self.localEcho:
             if self.termType == 'ASCII':
@@ -521,5 +526,5 @@ if __name__=="__main__":
     
     # app loop
     app = wx.App()
-    frame = MyFrame(None, "serial terminal demo")
+    frame = MyFrame(None, "Serial Terminal Demo")
     app.MainLoop()
