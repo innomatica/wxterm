@@ -5,7 +5,6 @@
 #   \file
 #   \author     <a href="http://www.innomatic.ca">innomatic</a>
 #   \brief      wxPython Terminal Window
-#   \warning    Packet decoding feature is not tested.
 #
 
 import os
@@ -14,20 +13,11 @@ import serial
 import _thread
 import wx
 import wx.lib.newevent
+from SerialCom import *
 
 # new event class for the COM thread
 (UpdateComData, EVT_UPDATE_COMDATA) = wx.lib.newevent.NewEvent()
 
-# state machine variable
-PKT_ST_HDRF = 0         # first header byte: 0xFF
-PKT_ST_HDR5 = 1         # second header byte: 0x55
-PKT_ST_SIZE = 2         # packet body size excluding checksum
-PKT_ST_BODY = 3         # packet body
-PKT_ST_CSUM = 4         # checksum
-
-# 2 byte packet header
-HDR_BYTE_FF = 0xFF
-HDR_BYTE_55 = 0x55
 
 # default data file name
 data_file = 'wxpyterm.dat'
@@ -116,6 +106,10 @@ class TermPanel(wx.Panel):
         # serial port
         self.ser = ser
 
+        # packet decoder
+        self.pd = PacketDecoder()
+        self.pd.SetMode('decode')
+
         # terminal
         self.txtTerm = wx.TextCtrl(self, wx.ID_ANY, "", size=(700,250),
                 style = wx.TE_MULTILINE|wx.TE_READONLY);
@@ -174,11 +168,16 @@ class TermPanel(wx.Panel):
         self.sttSave = wx.StaticText(self.pnlControl, -1, "Save Data")
         self.btnSave = wx.Button(self.pnlControl, -1, "Save")
 
+        # outbound packet
+        self.sttSndPkt = wx.StaticText(self.pnlControl, -1, "Send Packet")
+        self.choSndPkt = wx.Choice(self.pnlControl, -1,
+                choices=[key for key in OutPackets.keys()])
+
         # COM thread object
         self.thread = ComThread(self, self.ser)
 
         # sizer
-        sizer_g = wx.FlexGridSizer(8,2,4,4)
+        sizer_g = wx.FlexGridSizer(10,2,4,4)
         sizer_g.Add(self.sttSpeed, 1, wx.ALIGN_RIGHT|wx.ALIGN_CENTRE_VERTICAL)
         sizer_g.Add(self.cboSpeed, 1, wx.EXPAND)
         sizer_g.Add(self.sttCPort, 1, wx.ALIGN_RIGHT|wx.ALIGN_CENTRE_VERTICAL)
@@ -195,6 +194,10 @@ class TermPanel(wx.Panel):
         sizer_g.Add(self.btnReset, 1, wx.EXPAND)
         sizer_g.Add(self.sttSave, 1, wx.ALIGN_RIGHT|wx.ALIGN_CENTRE_VERTICAL)
         sizer_g.Add(self.btnSave, 1, wx.EXPAND)
+        sizer_g.Add((20,20))
+        sizer_g.Add((20,20))
+        sizer_g.Add(self.sttSndPkt, 1, wx.ALIGN_RIGHT|wx.ALIGN_CENTRE_VERTICAL)
+        sizer_g.Add(self.choSndPkt, 1, wx.EXPAND)
         self.pnlControl.SetSizer(sizer_g)
 
         # alignment
@@ -213,14 +216,11 @@ class TermPanel(wx.Panel):
         self.Bind(wx.EVT_BUTTON, self.OnTermClear, self.btnClear)
         self.Bind(wx.EVT_BUTTON, self.OnDataReset, self.btnReset)
         self.Bind(wx.EVT_BUTTON, self.OnFileSave, self.btnSave)
+        self.Bind(wx.EVT_CHOICE, self.OnSendPacket, self.choSndPkt)
         self.txtTerm.Bind(wx.EVT_CHAR, self.OnTermChar)
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Bind(EVT_UPDATE_COMDATA, self.OnUpdateComData)
 
-        # packet state machine variables initialization
-        self.packet_body = []
-        self.packet_count = 0
-        self.packet_state = PKT_ST_HDRF
 
         # raw data storage
         self.rawdata = bytearray()
@@ -236,9 +236,9 @@ class TermPanel(wx.Panel):
 
         # newline character
         if 'CR' in self.cboNLine.GetStringSelection():
-            self.newLine = 0x0d
+            self.newLine = 0x0D
         else:
-            self.newLine = 0x0a
+            self.newLine = 0x0A
 
         # local echo
         self.localEcho = False
@@ -310,7 +310,7 @@ class TermPanel(wx.Panel):
 
     ## Set new line character
     def SetNewLine(self, nl):
-        if nl == 0x0d or nl == 0x0a:
+        if nl == 0x0D or nl == 0x0A:
             self.newLine = nl
 
     ## Enable/disable local echo
@@ -399,70 +399,25 @@ class TermPanel(wx.Panel):
             else:
                 self.txtTerm.AppendText('0x{:02X}.'.format(evt.GetKeyCode()))
 
+    ## Local echo mode selection handler
+    def OnSendPacket(self, evt):
+        if self.ser.is_open:
+            self.ser.write(OutPackets[self.choSndPkt.GetStringSelection()])
+
+
     ## COM data input handler
     def OnUpdateComData(self, evt):
         # append incoming byte to the rawdata
         self.rawdata.append(evt.byte[0])
 
         if self.termType == 'Protocol':
-
-            # Protocol decoding state machine
-            if self.packet_state == PKT_ST_HDRF:
-
-                if evt.byte[0] == HDR_BYTE_FF:
-                    # first header detected: hunt for the next
-                    self.packet_state = PKT_ST_HDR5
-                else:
-                    # not a protocol stream
-                    if evt.byte[0] > 0x1f and evt.byte[0] < 0x80:
-                        # show byte as ASCII
-                        self.txtTerm.AppendText(chr(evt.byte[0]))
-                    # newline
-                    elif evt.byte[0] == self.newLine:
-                        # break a line
-                        self.txtTerm.AppendText('\n')
-                    # all the others
-                    else:
-                        # hex display
-                        self.txtTerm.AppendText(evt.byte.hex())
-
-            elif self.packet_state == PKT_ST_HDR5:
-
-                if evt.byte[0] == HDR_BYTE_55:
-                    # legit packet header found
-                    self.packet_state = PKT_ST_SIZE
-                else:
-                    # false alarm: start all over
-                    self.packet_state = PKT_ST_HDRF
-
-            elif self.packet_state == PKT_ST_SIZE:
-                # packet body size byte
-                self.packet_size = evt.byte[0]
-
-                if self.packet_size > 0:
-                    # valid size: prepare for the payload
-                    self.packet_count = 0
-                    self.packet_body = []
-                else:
-                    # invalid size: start all over
-                    self.packet_state = PKT_ST_HDRF
-
-            elif self.packet_state == PKT_ST_BODY:
-                # append the byte to the list
-                self.packet_body.append(evt.byte[0])
-                self.packet_count = self.packet_count + 1
-
-                if self.packet_count == self.packet_size:
-                    # end of body
-                    self.packet_state = PKT_ST_CSUM
-
-            elif self.packet_state == PKT_ST_CSUM:
-                if self.ComputeChecksum(self.packet_body) == evt.byte[0]:
-                    # decode and display body
-                    self.txtTerm.AppendText(self.DecodePacket(self.packet_body))
-                else:
-                    # checksum error
-                    self.txtTerm.AppendText('Checksum Error\n')
+            # pass byte to the packet decoder
+            ret = self.pd.AddByte(evt.byte[0])
+            # display packet decode result
+            if ret is None:
+                pass
+            else:
+                self.txtTerm.AppendText(ret + '\n')
 
         elif self.termType == 'Hex':
             # display formatted hex
@@ -481,10 +436,21 @@ class TermPanel(wx.Panel):
                 self.txtTerm.AppendText('.')
 
         else:
-            if evt.byte[0] == self.newLine:
+            if self.newLine == 0x0A:
+                if evt.byte[0] == 0x0D:
+                    pass
+                elif evt.byte[0] == 0x0A:
                     self.txtTerm.AppendText('\n')
-            else:
-                self.txtTerm.AppendText(chr(evt.byte[0]))
+                else:
+                    self.txtTerm.AppendText(chr(evt.byte[0]))
+            elif self.newLine == 0x0D:
+                if evt.byte[0] == 0x0A:
+                    pass
+                elif evt.byte[0] == 0x0D:
+                    self.txtTerm.AppendText('\n')
+                else:
+                    self.txtTerm.AppendText(chr(evt.byte[0]))
+
 
     ## wx.EVT_CLOSE handler
     def OnClose(self, evt):
