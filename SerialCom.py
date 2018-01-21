@@ -111,9 +111,9 @@ OutPackets = {
             DIO_SETVAL ^ 0x01)),
         'DIO 01 Clear'      :bytes((PKT_HEADR,0x02,DIO_RSTVAL,0x01,
             DIO_RSTVAL ^ 0x01)),
-        'DIO 01 Get'        :bytes((PKT_HEADR,0x01,DIO_GETVAL,
-            DIO_GETVAL)),
-        'Arbitrary'         :bytes((PKT_HEADR,0x05,0xFF,0x02,0x03,0x04,0x05,
+        'DIO 01 Get'        :bytes((PKT_HEADR,0x02,DIO_GETVAL,0x01,
+            DIO_GETVAL ^ 0x01)),
+        'Unknown'           :bytes((PKT_HEADR,0x05,0xFF,0x02,0x03,0x04,0x05,
             0xFF ^ 0x02 ^ 0x03 ^ 0x04 ^ 0x05)),
         }
 
