@@ -75,11 +75,11 @@ class ComThread:
         # keep running as far as the flag is set
         while self.keepGoing:
             # read a byte until timeout
-            byte = self.ser.read()
+            data = self.ser.read(100)
             # valid byte received
-            if len(byte):
+            if len(data):
                 # create an event with the byte
-                evt = UpdateComData(byte = byte)
+                evt = UpdateComData(data = data)
                 # post the event
                 wx.PostEvent(self.win, evt)
 
@@ -407,49 +407,51 @@ class TermPanel(wx.Panel):
 
     ## COM data input handler
     def OnUpdateComData(self, evt):
-        # append incoming byte to the rawdata
-        self.rawdata.append(evt.byte[0])
 
-        if self.termType == 'Protocol':
-            # pass byte to the packet decoder
-            ret = self.pd.AddByte(evt.byte[0])
-            # display packet decode result
-            if ret is None:
-                pass
-            else:
-                self.txtTerm.AppendText(ret + '\n')
+        for byte in evt.data:
+            # append incoming byte to the rawdata
+            self.rawdata.append(byte)
 
-        elif self.termType == 'Hex':
-            # display formatted hex
-            self.txtTerm.AppendText('0x{:02X}'.format(evt.byte[0]))
-            # counter for alignment of the hex display
-            self.binCounter = self.binCounter + 1
-
-            if self.binCounter == 8:
-                self.txtTerm.AppendText(' - ')
-
-            elif self.binCounter == 16:
-                self.txtTerm.AppendText('\n')
-                self.binCounter = 0
-
-            else:
-                self.txtTerm.AppendText('.')
-
-        else:
-            if self.newLine == 0x0A:
-                if evt.byte[0] == 0x0D:
+            if self.termType == 'Protocol':
+                # pass byte to the packet decoder
+                ret = self.pd.AddByte(byte)
+                # display packet decode result
+                if ret is None:
                     pass
-                elif evt.byte[0] == 0x0A:
-                    self.txtTerm.AppendText('\n')
                 else:
-                    self.txtTerm.AppendText(chr(evt.byte[0]))
-            elif self.newLine == 0x0D:
-                if evt.byte[0] == 0x0A:
-                    pass
-                elif evt.byte[0] == 0x0D:
+                    self.txtTerm.AppendText(ret + '\n')
+
+            elif self.termType == 'Hex':
+                # display formatted hex
+                self.txtTerm.AppendText('0x{:02X}'.format(byte))
+                # counter for alignment of the hex display
+                self.binCounter = self.binCounter + 1
+
+                if self.binCounter == 8:
+                    self.txtTerm.AppendText(' - ')
+
+                elif self.binCounter == 16:
                     self.txtTerm.AppendText('\n')
+                    self.binCounter = 0
+
                 else:
-                    self.txtTerm.AppendText(chr(evt.byte[0]))
+                    self.txtTerm.AppendText('.')
+
+            else:
+                if self.newLine == 0x0A:
+                    if byte == 0x0D:
+                        pass
+                    elif byte == 0x0A:
+                        self.txtTerm.AppendText('\n')
+                    else:
+                        self.txtTerm.AppendText(chr(byte))
+                elif self.newLine == 0x0D:
+                    if byte == 0x0A:
+                        pass
+                    elif byte == 0x0D:
+                        self.txtTerm.AppendText('\n')
+                    else:
+                        self.txtTerm.AppendText(chr(byte))
 
 
     ## wx.EVT_CLOSE handler
